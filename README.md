@@ -87,6 +87,16 @@ If you encounter any errors, unfortunately, there's no particular tips which I c
 
 Using your fresh, newly-built files, continue following the LineageOS [installation](https://wiki.lineageos.org/devices/alioth/install/variant1/#installing-lineage-recovery-using-fastboot) guide. Note that you _don't_ have to do a factory reset if you already have LineageOS installed.
 
+## 📦 Google Apps
+
+LineageOS ships without Google services, and it's easy to breeze right past this. If you want the Play Store, Play Services, and everything that leans on them, flash [MindTheGapps](https://wiki.lineageos.org/gapps) (arm64, Android 15) in the same session as the ROM, right after the LineageOS image and before you boot.
+
+> [!IMPORTANT]
+> GApps have to go on _together_ with the ROM. Adding them to an already-booted install means reflashing, and LineageOS recommends a factory reset when you're going from no-GApps to GApps. Decide up front!
+
+Staying de-Googled is perfectly fine too, just know that anything depending on Play Integrity won't work, and most of the modules below stop making much sense.
+
+
 ## 🧩 Modules
 
 This is (I think) the bare minimum you should install post-flash (specific tested versions included):
@@ -94,7 +104,56 @@ This is (I think) the bare minimum you should install post-flash (specific teste
 * [KernelSU-Next Manager Spoofed v1.1.1](https://github.com/KernelSU-Next/KernelSU-Next/releases/tag/v1.1.1)
 * [ReZygisk v1.0.0-rc.3 Release](https://github.com/PerformanC/ReZygisk/releases/tag/v1.0.0-rc.3)
 * [LSPosed 1.9.2 Zygisk](https://github.com/LSPosed/LSPosed/releases/tag/v1.9.2)
-* [SUSFS module v1.5.2+ Revision 21](https://github.com/sidex15/susfs4ksu-module/releases/tag/v1.5.2%2B_R21)
+* [SUSFS module v1.5.2+ Revision 28](https://github.com/sidex15/susfs4ksu-module/releases/tag/v1.5.2%2B_R28)
+
+> [!TIP]
+> Repackage the KernelSU-Next Manager under a random package name from its own settings. The "Spoofed" build only changes the label and the icon; the package ID is still sitting there for anything that enumerates installed apps.
+
+If you're chasing Play Integrity on top of that, the usual additions are [Tricky Store](https://github.com/5ec1cff/TrickyStore) and a Play Integrity module ([Integrity Box](https://github.com/MeowDump/Integrity-Box) folds the old Play Integrity Fix in and takes over its module ID). Do read the Troubleshooting section below before assuming either one is actually doing anything for you.
+
+## 🩺 Troubleshooting
+
+Some things I only worked out after living with this for a while.
+
+### "Device is not certified" in the Play Store
+
+Google only certifies build fingerprints that shipped from an OEM, and a self-built ROM's fingerprint isn't one of them, so you land uncertified no matter how good your hiding setup is. This is a completely separate mechanism from Play Integrity, so no amount of module tuning will fix it.
+
+Register the device instead. Grab the GSF ID:
+
+```bash
+adb shell su -c "sqlite3 /data/data/com.google.android.gms/databases/gservices.db \"select value from main where name='android_id'\""
+```
+
+Paste it into [Google's uncertified device form](https://www.google.com/android/uncertified/) while signed in with the same account that's on the phone, then clear storage on both Google Play Services and the Play Store, and reboot.
+
+> [!NOTE]
+> The GSF ID is regenerated if you clear Play Services data _before_ registering, or if you factory reset. Register first, clear second, or you'll just be doing it twice.
+
+This alone is what got Authy working for me.
+
+### Tricky Store does nothing without a valid keybox
+
+Tricky Store forges Android Keystore attestation, which is the one signal you genuinely _can't_ spoof from userspace: the TEE reports your real bootloader state and signs it with a key the OS can't reach. That's a real capability, but it's worth exactly as much as the keybox you feed it.
+
+Mine had been sitting there for a year doing nothing at all. Check yours:
+
+```bash
+adb shell su -c "cat /data/adb/tricky_store/keybox.xml" | grep -i DeviceID
+```
+
+`DeviceID="sw"` means it's the AOSP _software_ attestation chain that ships in AOSP source. It's public, Google rejects it on sight, and mine had expired months earlier on top of that. A dead keybox is worse than no keybox, because `target.txt` points it at `com.google.android.gms` and `com.android.vending` and hands Play Services a provably invalid chain. Trim `target.txt` or leave the module inert until you have an actual reason for it.
+
+### SUSFS module version is not the kernel SUSFS version
+
+A tag like `v1.5.2+_R28` means "needs kernel SUSFS 1.5.2 **or newer**, module revision 28". A newer kernel SUSFS sitting next to an older-looking module tag is the supported setup, not a mismatch. Don't go chasing a version conflict that isn't there (I did).
+
+### Not everything is a root problem
+
+I burned an evening convinced Telegram was being blocked by my setup. It wasn't. Telegram charges a one-time SMS fee for login codes in some countries, and that has nothing to do with root, integrity, or the ROM.
+
+Check the device side first, certification status and an actual Play Integrity verdict from a checker app. Once that comes back clean, believe it, and go look at the app instead.
+
 
 ## 🚀 _Fin_
 
